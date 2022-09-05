@@ -120,12 +120,11 @@ class YoloLoss(nn.Module):
 		# probability loss of cells without objects
 		# since the number of boxes per cell is very small (probably <5)
 		# it is ok to use a for loop here
-		prob_loss_no_obj = sum(
-			self.mse(
-				label_no_obj[..., probability_index],
-				pred_no_obj[..., probability_index + 5 * i]
-			)
-			for i in range(b)
+		pred_prob_indices = torch.Tensor([probability_index + 5 * i for i in range(b)]).long()
+		v = torch.index_select(pred_no_obj, -1, pred_prob_indices).squeeze(-1)
+		prob_loss_no_obj = self.mse(
+			v,
+			label_no_obj[..., probability_index]
 		)
 		
 		# classes loss for cells with objects

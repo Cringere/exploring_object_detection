@@ -46,13 +46,13 @@ class MnistOdDataset(Dataset):
 			items_rotation=(-30, 30),
 			items_size=(25, 35),
 			):
-		"""
+		'''
 		Generates images with shape (1, out_size, out_size) with scattered mnist
 		digits.
 		The arrangement of the digits can be controlled with the `items_*`parameters.
 
 		The generated labels follow yolo's style
-		"""
+		'''
 		
 		self.single_object_per_cell = single_object_per_cell
 
@@ -236,7 +236,7 @@ class MnistOdDataset(Dataset):
 		return img, labels
 
 	def relative_box_to_absolute(self, cell_row, cell_col, cx, cy, w, h):
-		"""
+		'''
 		input:
 			cell_row, cell_col - the cell that the bounding box belongs to
 			cx, cy - bounding box's center relative to the the cell
@@ -244,7 +244,7 @@ class MnistOdDataset(Dataset):
 		output:
 			r, c - row and column (in pixels) of the top left corner of the box
 			w, h - size (in pixels) of the the box
-		"""
+		'''
 		# cell's size
 		cell_width = self.out_size / self.n_cells
 		cell_height = self.out_size / self.n_cells
