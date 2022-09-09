@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 from typing import List
 
 def iou(boxesA, boxesB):
@@ -233,3 +234,12 @@ def mean_average_precision(stats):
 		m_ap.append(ap / len(classes))
 	
 	return ious, m_ap
+
+def count_parameters(module: nn.Module):
+	'''
+	counts and prints how many parameters a module has
+	'''
+
+	n_params = sum(p.numel() for p in module.parameters() if p.requires_grad)
+	n_params = "{:,}".format(n_params)
+	print(f'model has {n_params} learnable parameters')

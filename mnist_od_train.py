@@ -24,7 +24,7 @@ class Trainer:
 		self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 		# network
-		if os.getenv('LOAD_MODEL') == 'True':
+		if os.getenv('MNIST_LOAD_MODEL') == 'True':
 			self.net = torch.load('model_files/mnist_od.tch')
 		else:
 			self.net = Net(config.FULLY_CONVOLUTIONAL, config.USE_SIGMOID)
@@ -34,7 +34,7 @@ class Trainer:
 		self.dataset = MnistOdDataset(
 			root=os.getenv('MNIST_ROOT'),
 			train=True,
-			download=True,
+			download=os.getenv('MNIST_DOWNLOAD') == 'True',
 			n_cells=config.NUM_CELLS,
 			out_size=config.INPUT_SIZE,
 			items_per_image=config.ITEMS_PER_IMAGE,
@@ -223,5 +223,5 @@ if __name__ == '__main__':
 	trainer.plot_losses(offset, name=f'mnist_od_losses_offset_{offset}.png')
 
 	# save model
-	if os.getenv('SAVE_MODEL') == 'True':
+	if os.getenv('MNIST_SAVE_MODEL') == 'True':
 		torch.save(trainer.net, 'model_files/mnist_od.tch')

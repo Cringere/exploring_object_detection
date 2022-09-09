@@ -1,4 +1,9 @@
 out/
 
 **/__pycache__/
+**/*.swp
 
+*.swp
+
+.env
+model_files/
