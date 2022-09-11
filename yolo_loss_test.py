@@ -156,7 +156,7 @@ if __name__ == '__main__':
 	# print(label.shape)
 	# print(pred.shape)
 
-	loss_fn = YoloLoss(3, 2)
+	loss_fn = YoloLoss(3, 'cpu')
 	print(loss_fn(label, pred))
 
 	print(
@@ -206,4 +206,3 @@ if __name__ == '__main__':
 			pow(b_prob_22 * pred_22[2] - 1 * label_22[2], 2)
 		)
 	)
-

@@ -53,7 +53,9 @@ class VocLabel:
 			folder: str,
 			filename: str,
 			source: Source,
-			size: List[int],
+			depth: int,
+			height: int,
+			width: int,
 			segmented: bool,
 			label_objects: List[LabelObject]
 			):
@@ -69,7 +71,9 @@ class VocLabel:
 		self.folder = folder
 		self.filename = filename
 		self.source = source
-		self.size = size
+		self.depth = depth
+		self.height = height
+		self.width = width
 		self.segmented = segmented
 		self.label_objects = label_objects
 	
@@ -83,7 +87,7 @@ class VocLabel:
 		l = torch.zeros((cells, cells, n_classes + 5))
 		for obj in self.label_objects:
 			# normalize coordinates
-			xmin, xmax, ymin, ymax = obj.normalized(self.size[2], self.size[1])
+			xmin, xmax, ymin, ymax = obj.normalized(self.width, self.height)
 			center_x = (xmin + xmax) / 2
 			center_y = (ymin + ymax) / 2
 
@@ -95,7 +99,7 @@ class VocLabel:
 			l[cell_row, cell_col, classes[obj.name]] = 1
 
 			# encode the probability and coordinates
-			l[cell_row, cell_col, n_classes] = torch.Tensor([
+			l[cell_row, cell_col, n_classes:] = torch.Tensor([
 				# probability
 				1.0,
 				# coordinates
@@ -127,11 +131,9 @@ class VocLabel:
 				source['database'],
 				source['image'],
 			),
-			[
-				int(size['depth']),
-				int(size['height']),
-				int(size['width'])
-			],
+			int(size['depth']),
+			int(size['height']),
+			int(size['width']),
 			segmented == '1',
 			[LabelObject(
 				obj['name'],

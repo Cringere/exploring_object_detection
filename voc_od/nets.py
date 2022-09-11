@@ -106,7 +106,8 @@ class DetectionNet(nn.Module):
 		)
 
 		self.head = nn.Sequential(
-			ConvBLock(512, 512, 1, 1, 0),
+			ResConvBlock(512, 512, 1, 1, 0),
+			nn.LeakyReLU(0.1),
 			ConvBLock(512, self.out_label_size, 1, 1, 0, False, False),
 		)
 	

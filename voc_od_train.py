@@ -36,9 +36,11 @@ class Trainer:
 		self.classes_loss = []
 		self.total_losses = []
 
-		# load and save points
+		# load env variables
 		load_stage = os.getenv('VOC_LOAD_STAGE')
 		save_models = os.getenv('VOC_SAVE_MODELS').replace(' ', '').split(',')
+		num_workers = os.getenv('NUM_WORKERS')
+		self.num_workers = int(num_workers) if num_workers is not None else 0
 
 		if load_stage == 'None':
 			# train classification
@@ -51,15 +53,16 @@ class Trainer:
 
 			# save classifier's base
 			if 'Base' in save_models:
-				torch.save(self.net, f'model_files/{config.BASE_MODEL_NAME}')
+				torch.save(self.net.base, f'model_files/{config.BASE_MODEL_NAME}')
 		if load_stage == 'Base':
-			base = torch.load(f'model_files/{config.DETECTION_MODEL_NAME}').to(self.device)
+			base = torch.load(f'model_files/{config.BASE_MODEL_NAME}').to(self.device)
 			self.net = DetectionNet(base)
 		if load_stage == 'Full':
 			self.net = torch.load(f'model_files/{config.DETECTION_MODEL_NAME}').to(self.device)
-
+		
 		# train detection
 		self.net = DetectionNet(self.net.base)
+		self.net = self.net.to(self.device)
 		self.train_detection()
 		self.plot_detection_losses()
 		self.plot_detection_losses(100)
@@ -77,25 +80,26 @@ class Trainer:
 				T.ToTensor(),
 				T.Resize((config.INPUT_SIZE, config.INPUT_SIZE)),
 				T.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-			])
+			]),
 		)
 
 		dataloader = DataLoader(
 			dataset=dataset,
-			batch_size=config.BATCH_SIZE,
+			batch_size=config.C_BATCH_SIZE,
 			shuffle=True,
+			num_workers=self.num_workers,
 		)
 
 		# optimizer and loss
 		optimizer = optim.Adam(
 			self.net.parameters(),
-			lr=config.CLASSIFICATION_BATCH_SIZE,
+			lr=config.C_LEARNING_RATE,
 		)
 		loss_fn = nn.CrossEntropyLoss()
 
 		# training
-		for epoch in range(config.CLASSIFICATION_EPOCHS):
-			for (img, label) in tqdm(dataloader, desc=f'classification epoch {epoch}'):
+		for epoch in range(config.C_EPOCHS):
+			for img, label in tqdm(dataloader, desc=f'classification epoch {epoch}'):
 				img = img.to(self.device)
 				label = label.to(self.device)
 
@@ -122,7 +126,7 @@ class Trainer:
 		dataset = VOCDetection(
 			root=os.getenv('VOC_ROOT'),
 			download=os.getenv('VOC_DOWNLOAD') == 'True',
-			image_set='train',
+			image_set=config.VOC_IMAGE_SET,
 			transform=T.Compose([
 				T.ToTensor(),
 				T.Resize((config.INPUT_SIZE, config.INPUT_SIZE)),
@@ -133,23 +137,24 @@ class Trainer:
 
 		dataloader = DataLoader(
 			dataset=dataset,
-			batch_size=config.BATCH_SIZE,
+			batch_size=config.D_BATCH_SIZE,
 			shuffle=True,
+			num_workers=self.num_workers,
 		)
 
 		# optimizer and loss
 		optimizer = optim.Adam(
 			self.net.parameters(),
-			lr=config.LEARNING_RATE
+			lr=config.D_LEARNING_RATE
 		)
-		loss_fn = YoloLoss(config.NUM_CLASSES)
+		loss_fn = YoloLoss(config.NUM_CLASSES, self.device)
 
 		# train
-		for epoch in range(config.EPOCHS):
+		for epoch in range(config.D_EPOCHS):
 			for (img, label) in tqdm(dataloader, desc=f'detection epoch {epoch}'):
 				# img: (batch, channels, w, h)
 				img = img.to(self.device)
-				
+
 				# label: (batch, cells, cells, classes + 5)
 				label = label.to(self.device)
 
@@ -213,7 +218,6 @@ class Trainer:
 		plt.clf()
 		plt.plot(self.classification_losses[offset:])
 		plt.title('classification loss')
-		plt.legend()
 		name = f'voc_od_classification_losses_{offset}.png'
 		plt.savefig(os.path.join(os.getenv('OUT_DIR'), name))
 

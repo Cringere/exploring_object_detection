@@ -20,20 +20,27 @@ class Drawer:
 		img: (height (rows), width (columns), channels)
 		channels can be either 1 or 3
 		'''
+		assert img.shape[2] == 1 or img.shape[2] == 3
+
 		if img.shape[2] == 1:
 			img = np.repeat(img, 3, axis=2) # repeat to (r, c, 3)
 		self.img = img
 	
-	def bounding_box_from_corners(self, tl_x, tl_y, br_x, br_y, color):
-		color = _convert_color(color)
-		
-		r = [tl_y, br_y, br_y, tl_y]
-		c = [tl_x, tl_x, br_x, br_x]
-		rr, cc = polygon_perimeter(r, c, self.img.shape)
-		self.img[rr, cc] = np.maximum(color, self.img[rr, cc])
+	def bounding_box_from_corners(self, tl_x: int, tl_y: int, br_x: int, br_y: int, color, thickness=1):
+		for i in range(thickness):
+			color = _convert_color(color)
+			
+			r = [tl_y - i, br_y + i, br_y + i, tl_y - i]
+			c = [tl_x - i, tl_x - i, br_x + i, br_x + i]
+			rr, cc = polygon_perimeter(r, c, self.img.shape)
+			self.img[rr, cc] = np.maximum(color, self.img[rr, cc])
 	
 	def border(self, color):
 		self.bounding_box_from_corners(0, 0, self.img.shape[1], self.img.shape[0], color)
+
+	def save(self, path):
+		from skimage.io import imsave
+		imsave(path, self.img)
 
 	@classmethod
 	def from_array_chw(cls, img):
@@ -41,7 +48,6 @@ class Drawer:
 		img: (channels, height (rows), width (columns))
 		'''
 		return Drawer(img.transpose((1, 2, 0)))
-	
 
 	@classmethod
 	def from_array_hwc(cls, img):
@@ -90,4 +96,4 @@ class Drawer:
 		]
 
 		# concatenate the rows to create the full image
-		return np.concatenate(rows, axis=1)
+		return Drawer(np.concatenate(rows, axis=1))

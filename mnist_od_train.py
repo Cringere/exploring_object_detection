@@ -50,7 +50,7 @@ class Trainer:
 			self.net.parameters(),
 			lr=config.LEARNING_RATE
 		)
-		self.loss_fn = YoloLoss(config.NUM_CLASSES)
+		self.loss_fn = YoloLoss(config.NUM_CLASSES, self.device)
 
 		# history
 		self.location_losses = []

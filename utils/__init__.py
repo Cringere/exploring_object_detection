@@ -45,6 +45,10 @@ def iou_c_stats(
 		pred,
 		iou_thresholds: List[float]):
 	'''
+	Calculates precision and recall for all available confidence thresholds for
+	the given IOUs. Assumes true positive predictions share the same cell as their
+	target labels.
+
 	input: Tensors
 		label: (batch, cells, cells, classes + 5)
 		pred:  (batch, cells, cells, classes + 5 * b)
@@ -60,7 +64,6 @@ def iou_c_stats(
 		# extract shape
 		(batch, cells_a, cells_b, cp5b) = pred.shape
 		b = (cp5b - num_classes) // 5
-
 
 		# flatten
 		# (batch * cells * cells, classes + 5) = (x, classes + 5)
@@ -199,6 +202,184 @@ def iou_c_stats(
 	
 	return iou_c_stats
 
+def count_tps_fps(
+		label_boxes,
+		pred_boxes,
+		label_classes,
+		pred_classes,
+		selected_class,
+		iou_threshold,
+		):
+	'''
+	Counts the number of true positives and false positives for a specific
+	IOU for a specific image.
+
+	input:
+		label_boxes: (x, 5)
+		pred_boxes: (x, 5)
+		iou_threshold: float
+	output:
+		list of tuples: ('TP' or 'FP',threshold)
+	'''
+	# filter the label boxes
+	# (x, 5)
+	label_boxes = label_boxes[label_boxes[..., 0] > 0.5]
+	
+	# convert the label boxes to a list
+	# [(5,)]
+	label_boxes = [label_boxes[i] for i in range(label_boxes.shape[0])]
+	label_boxes = list(filter(lambda t: torch.argmax(t).cpu().item() == selected_class, label_boxes))
+
+	# create a list of boxes and sort them from highest to lowest confidence
+	# [(5,)]
+	pred_boxes = [pred_boxes[i] for i in range(pred_boxes.shape[0])]
+	pred_boxes = list(filter(lambda t: torch.argmax(t).cpu().item() == selected_class, pred_boxes))
+	pred_boxes.sort(key=lambda t: t[0], reverse=True)
+
+	# iterate over the boxes
+	out = []
+	tps = 0 # true positives
+	fps = 0 # false positives
+	for box in pred_boxes:
+		selected_label = None
+		for i, label in enumerate(label_boxes):
+			if iou(box, label) > iou_threshold:
+				selected_label = i
+				break
+
+		mode = 'FP'
+		if selected_label is not None:
+			del label_boxes[selected_label]
+			mode = 'TP'
+
+		out.append((mode, box[0].cpu().item()))
+
+	return out
+
+def iou_c_stats_absolute(
+		label,
+		pred,
+		iou_thresholds: List[float]):
+	'''
+	Calculates precision and recall for all available confidence thresholds for
+	the given IOUs. This implementation doesn't require true positive predicted
+	boxes to have their center points in the same cells as their target boxes.
+	Only the box with the maximum confidence is selected from each cell.
+
+	input: Tensors
+		label: (batch, cells, cells, classes + 5)
+		pred:  (batch, cells, cells, classes + 5 * b)
+	output:
+		iou_c_stats - iou_c_stats[iou_threshold][class] is a map of
+			{
+				'p': [...], # precision
+				'r': [...], # recall
+				't': [...], # confidence threshold
+			}
+	'''
+	with torch.no_grad():
+		# extract the dimensions
+		num_classes = label.shape[-1] - 5
+		batch, cells_a, cells_b, cp5b = pred.shape
+		b = (cp5b - num_classes) // 5
+	
+		# extract the classes and boxes
+		pred_classes = pred[..., :num_classes]
+		pred_boxes = pred[..., num_classes:]
+		label_classes = label[..., :num_classes]
+		label_boxes = label[..., num_classes:]
+		
+		# place the boxes in their own dimension
+		# (batch, cells, cells, b, 5)
+		pred_boxes = pred_boxes.view((batch, cells_a, cells_b, b, 5))
+
+		# extract the probabilities
+		# (batch, cells, cells, b)
+		pred_probs = pred_boxes[..., 0]
+
+		# chose the box with the maximum probability
+		# (batch, cells, cells, 1)
+		(_, indices) = torch.max(pred_probs, dim=-1, keepdim=True)
+		# reshape to match `pred_boxes`
+		indices = indices.unsqueeze(-1).repeat((1, 1, 1, 1, 5))
+		# gather the boxes
+		# pred_boxes[i, 0, k] <- pred_boxes[i, indices[i, 0, k], k]
+		# (batch, cells, cells, 1, 5)
+		pred_boxes = torch.gather(pred_boxes, 1, indices)
+		# remove the extra dimension
+		# (batch, cells, cells, 5)
+		pred_boxes = pred_boxes.squeeze(3)
+
+		# convert boxes to absolute
+		# (batch, cells^2, 5)
+		label_boxes = relative_boxes_to_absolute_tensors(label_boxes)
+		pred_boxes = relative_boxes_to_absolute_tensors(pred_boxes)
+
+		# flatten the classes
+		# (batch, cells^2, classes)
+		label_classes = label_classes.reshape(batch, cells_a * cells_b, num_classes)
+		pred_classes = pred_classes.reshape(batch, cells_a * cells_b, num_classes)
+
+		# map of precision and recall for each class for each iou threshold
+		iou_c_stats = {}
+		for iou_thresh in iou_thresholds:
+			iou_c_stats[iou_thresh] = {}
+			for c in range(num_classes):
+				iou_c_stats[iou_thresh][c] = {}
+
+		# calculate true and false positives for all images
+		for iou_threshold in iou_thresholds:
+			for c in range(num_classes):
+				tps_fps_probs = []
+
+				# accumulate 
+				for i in range(batch):
+					tps_fps_probs += count_tps_fps(
+						label_boxes[i],
+						pred_boxes[i],
+						label_classes[i],
+						pred_classes[i],
+						c,
+						iou_threshold,
+					)
+				
+				# sort by the confidence
+				tps_fps_probs.sort(key=lambda x: x[1], reverse=True)
+
+				# calculate how many labels this class has
+				total_positive_labels = 0
+				for i in range(batch):
+					for j in range(cells_a * cells_b):
+						if label_classes[i][j][c] > 0.5 and label_boxes[i][j][0] > 0.5:
+							total_positive_labels += 1
+				
+				# calculate the statistics
+				tps = 0
+				fps = 0
+				total_positive_guesses = 0
+				precisions = []
+				recalls = []
+				probs = []
+				if total_positive_labels > 0:
+					for mode, confidence in tps_fps_probs:
+						total_positive_guesses += 1
+
+						if mode == 'TP':
+							tps += 1
+						else:
+							fps += 1
+						
+						precisions.append(tps / total_positive_guesses)
+						recalls.append(tps / total_positive_labels)
+						probs.append(confidence)
+			
+				iou_c_stats[iou_threshold][c] = {
+					'p': precisions,
+					'r': recalls,
+					't': probs,
+				}
+	return iou_c_stats
+
 def mean_average_precision(stats):
 	'''
 	input:
@@ -243,3 +424,80 @@ def count_parameters(module: nn.Module):
 	n_params = sum(p.numel() for p in module.parameters() if p.requires_grad)
 	n_params = "{:,}".format(n_params)
 	print(f'model has {n_params} learnable parameters')
+
+def relative_box_to_absolute(cell_row, cell_col, cx, cy, w, h, cells, size):
+		'''
+		input:
+			cell_row, cell_col - the cell that the bounding box belongs to
+			cx, cy - bounding box's center relative to the the cell
+			w, h - bounding box's size relative to the cell
+			cells - the number of cells the width and height of the original image
+			        was split to
+			size - number of rows and columns in pixels
+		output:
+			r, c - row and column (in pixels) of the top left corner of the box
+			w, h - size (in pixels) of the the box
+		'''
+
+		if isinstance(cells, int):
+			cells = (cells, cells)
+
+		if isinstance(size, int):
+			size = (size, size)
+
+		# cell size
+		cell_width = size[1] / cells[1]
+		cell_height = size[0] / cells[0]
+
+		# un-normalize size
+		w = w * cell_width
+		h = h * cell_height
+
+		# get the cell's position
+		cx = cell_col * cell_width + cx * cell_width
+		cy = cell_row * cell_height + cy * cell_height
+
+		return (
+			int(cx - w / 2),
+			int(cy - h / 2),
+			int(cx + w / 2),
+			int(cy + h / 2),
+		)
+
+def relative_boxes_to_absolute_tensors(boxes):
+	'''
+	input:
+		boxes: (batch, row cells, colum cells, 5)
+	output:
+		absolute boxes: (batch, 5)
+	'''
+	assert len(boxes.shape) == 4
+	assert boxes.shape[3] == 5
+
+	batch, cells_rows, cells_cols, _ = boxes.shape
+
+	# tensor containing the rows and columns
+	# (1, rows, cols, 2)
+	row_col = torch.Tensor([
+		list(zip(range(cells_rows), [i] * cells_rows))
+		for i in range(cells_cols)
+	]).float().reshape(1, cells_rows, cells_cols, 2)
+
+	# cells size
+	# (2,)
+	cell_size = torch.Tensor([1 / cells_rows, 1 / cells_cols]).float()
+
+	# calculate the offsets of each cell
+	# (1, rows, cols, 2)
+	offsets = row_col * cell_size
+
+	# un-normalize the sizes
+	boxes[..., 3: 5] *= cell_size
+
+	# un-normalize the positions
+	boxes[..., 1: 3] = offsets + boxes[..., 1: 3] * cell_size
+
+	# the cell dimensions are no longer needed
+	boxes = boxes.reshape(batch, -1, 5)
+
+	return boxes

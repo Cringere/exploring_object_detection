@@ -9,9 +9,10 @@ class YoloLoss(nn.Module):
 	'''
 	A variation of the loss from the YOLO-v1 paper
 	'''
-	def __init__(self, num_classes):
+	def __init__(self, num_classes, device):
 		super().__init__()
 		self.num_classes = num_classes
+		self.device = device
 
 		self.mse = nn.MSELoss(reduction='sum')
 		self.sqrt_scale = SqrtScale()
@@ -120,11 +121,13 @@ class YoloLoss(nn.Module):
 		# probability loss of cells without objects
 		# since the number of boxes per cell is very small (probably <5)
 		# it is ok to use a for loop here
-		pred_prob_indices = torch.Tensor([probability_index + 5 * i for i in range(b)]).long()
+		pred_prob_indices = torch.Tensor([probability_index + 5 * i for i in range(b)]).long().to(self.device)
 		v = torch.index_select(pred_no_obj, -1, pred_prob_indices).squeeze(-1)
+		t = label_no_obj[..., probability_index].unsqueeze(-1).repeat((1, b))
+		
 		prob_loss_no_obj = self.mse(
 			v,
-			label_no_obj[..., probability_index]
+			t,
 		)
 		
 		# classes loss for cells with objects
