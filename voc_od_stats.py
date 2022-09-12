@@ -51,8 +51,10 @@ if __name__ == '__main__':
 		config.NUM_CLASSES,
 		dataset,
 		config.STATS_NUM_ITEMS,
+		config.STATS_NUM_REPEATS,
 		config.STATS_IOU_THRESHOLDS,
 		os.path.join(os.getenv('OUT_DIR'), 'voc_od_stats.png'),
 		os.path.join(os.getenv('OUT_DIR'), 'voc_od_map.png'),
+		'absolute',
 	)
 	stater.calculate()
